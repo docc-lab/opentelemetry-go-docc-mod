@@ -6,7 +6,8 @@ import (
     "encoding/json"
     "net"
     "os"
-    // "go.opentelemetry.io/otel/trace"
+
+    "go.opentelemetry.io/otel/baggage"
 )
 
 type lastUpstreamParentKey struct{}
@@ -23,17 +24,53 @@ type PacketData struct {
 }
 
 
-// Function to add the most recent enabled span to the context
-func setLastUpstreamParent(ctx context.Context, span Span) context.Context {
-    return context.WithValue(ctx, lastUpstreamParentKey{}, span)
+// Add the most recent enabled span to the baggage
+
+// func setLastUpstreamParent(ctx context.Context, span trace.Span) context.Context {
+//     spanContext := span.SpanContext()
+//     bag, _ := baggage.New(ctx, baggage.KeyValue{
+//         Key:   lastUpstreamParentKey,
+//         Value: baggage.StringValue(spanContext.SpanID().String()),
+//     })
+//     return baggage.Context(ctx)
+// }
+
+func setLastUpstreamParent(ctx context.Context, span trace.Span) context.Context {
+    spanContext := span.SpanContext()
+    member, _ := baggage.NewMember("lastUpstreamParentKey", spanContext.SpanID().String())
+    bag := baggage.FromContext(ctx).WithMember(member)
+    return baggage.ContextWithBaggage(ctx, bag)
 }
 
-// Function to retrieve the most recent enabled span from the context, if any
-func getLastUpstreamParent(ctx context.Context) Span {
-    if span, ok := ctx.Value(lastUpstreamParentKey{}).(Span); ok {
-        return span
+// Retrieve the most recent enabled span from the baggage, if any
+// func getLastUpstreamParent() trace.SpanContext {
+//     bag := baggage.FromContext(ctx)
+//     if bag.Has(lastUpstreamParentKey) {
+//         spanIDHex := bag.Value(lastUpstreamParentKey).AsString()
+//         spanID, _ := trace.SpanIDFromHex(spanIDHex)
+//         traceID := trace.SpanContextFromContext(ctx).TraceID()
+//         if spanID.IsValid() {
+//             return trace.NewSpanContext(trace.SpanContextConfig{
+//                 TraceID: traceID,
+//                 SpanID:  spanID,
+//             })
+//         }
+//     }
+//     return trace.SpanContext{}
+// }
+
+func getLastUpstreamParent(ctx context.Context) trace.SpanContext {
+    bag := baggage.FromContext(ctx)
+    spanIDHex := bag.Member("lastUpstreamParentKey").Value()
+    spanID, _ := trace.SpanIDFromHex(spanIDHex)
+    traceID := trace.SpanContextFromContext(ctx).TraceID()
+    if spanID.IsValid() {
+        return trace.NewSpanContext(trace.SpanContextConfig{
+            TraceID: traceID,
+            SpanID:  spanID,
+        })
     }
-    return nil
+    return trace.SpanContext{}
 }
 
 // Function to handle TCP packet, return to a channle of string
@@ -114,12 +151,12 @@ func doccLabTracer(tracer Tracer, serverPath string) *cactiTracer {
 // Start method override for cactiTracer
 func (ct *cactiTracer) Start(ctx context.Context, serviceName string, opts ...SpanStartOption) (context.Context, Span) {
     if ct.enabledTracepoints[serviceName] {
-        // Tracepoint enabled; proceed with span creation and update context
+        // Tracepoint enabled; proceed with span creation and update baggage
         ctx, span := ct.Tracer.Start(ctx, serviceName, opts...)
         return setLastUpstreamParent(ctx, span), span
     } else {
         // Tracepoint not enabled; attempt to maintain trace continuity if there's an enabled span upstream
-        enabledSpan := getLastUpstreamParent(ctx)
+        enabledSpan := getLastUpstreamParent()
         if enabledSpan != nil {
             // use last upstream span to maintain trace continuity
             ctx = ContextWithSpan(ctx, enabledSpan)
