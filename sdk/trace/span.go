@@ -818,6 +818,10 @@ func isSampled(s SamplingResult) bool {
 	return s.Decision == RecordAndSample
 }
 
+func isEnabled(s SamplingResult) bool {
+	return s.Decision == RecordAndSampleAndEnabled
+}
+
 // Status is the classified state of a Span.
 type Status struct {
 	// Code is an identifier of a Spans state classification.

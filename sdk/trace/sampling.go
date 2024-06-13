@@ -37,6 +37,7 @@ type SamplingParameters struct {
 	Kind          trace.SpanKind
 	Attributes    []attribute.KeyValue
 	Links         []trace.Link
+	Enabled       bool
 }
 
 // SamplingDecision indicates whether a span is dropped, recorded and/or sampled.
@@ -54,6 +55,10 @@ const (
 	// RecordAndSample has span's `IsRecording() == true` and `Sampled` flag
 	// *must* be set.
 	RecordAndSample
+
+	//RecordAndSampleAndEnabled has span's `IsRecording() == true`, `Sampled`, and 'Enabled' flag
+	// may be set
+	RecordAndSampleAndEnabled 
 )
 
 // SamplingResult conveys a SamplingDecision, set of Attributes and a Tracestate.
@@ -72,8 +77,12 @@ func (ts traceIDRatioSampler) ShouldSample(p SamplingParameters) SamplingResult 
 	psc := trace.SpanContextFromContext(p.ParentContext)
 	x := binary.BigEndian.Uint64(p.TraceID[8:16]) >> 1
 	if x < ts.traceIDUpperBound {
+		decision = RecordAndSample
+		if p.Enabled {
+			decision = RecordAndSampleAndEnabled
+		}
 		return SamplingResult{
-			Decision:   RecordAndSample,
+			Decision:   decision,
 			Tracestate: psc.TraceState(),
 		}
 	}
@@ -111,8 +120,12 @@ func TraceIDRatioBased(fraction float64) Sampler {
 type alwaysOnSampler struct{}
 
 func (as alwaysOnSampler) ShouldSample(p SamplingParameters) SamplingResult {
+	decision := RecordAndSample
+    if p.Enabled {
+        decision = RecordAndSampleAndEnabled
+    }
 	return SamplingResult{
-		Decision:   RecordAndSample,
+		Decision:   decision,
 		Tracestate: trace.SpanContextFromContext(p.ParentContext).TraceState(),
 	}
 }

@@ -17,6 +17,7 @@ type tracer struct {
 
 	provider             *TracerProvider
 	instrumentationScope instrumentation.Scope
+	enabledTracepoints map[string]bool
 }
 
 var _ trace.Tracer = &tracer{}
@@ -53,6 +54,23 @@ func (tr *tracer) Start(ctx context.Context, name string, options ...trace.SpanS
 	}
 
 	return trace.ContextWithSpan(ctx, s), s
+}
+
+func (tr *tracer) docclabStart(ctx context.Context, serviceName string, options ...trace.SpanStartOption) (context.Context, trace.Span){
+	if tr.enabledTracepoints[serviceName] {
+		// Tracepoint enabled; proceed with span creation and update baggage
+		ctx, span := ct.Tracer.Start(ctx, serviceName, opts...)
+		return setLastUpstreamParent(ctx, span), span
+	} else {
+		// Tracepoint not enabled; attempt to maintain trace continuity if there's an enabled span upstream
+		enabledSpan := getLastUpstreamParent()
+		if enabledSpan != nil {
+			// use last upstream span to maintain trace continuity
+			ctx = ContextWithSpan(ctx, enabledSpan)
+		}
+		// Return context and no-op span, as this tracepoint isn't enabled
+		return ctx, noopSpan{}
+	}
 }
 
 type runtimeTracer interface {
